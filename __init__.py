@@ -77,6 +77,10 @@ def enregistrer_client():
     conn.close()
     return redirect('/consultation/')  # Rediriger vers la page d'accueil après l'enregistrement
 
+@app.route('/fiche_nom/', methods=['GET'])
+def fiche_nom():
+    return render_template('fiche_nom')
+
 #test
                                                                                                                                        
 if __name__ == "__main__":
