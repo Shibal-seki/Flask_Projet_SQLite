@@ -77,9 +77,82 @@ def enregistrer_client():
     conn.close()
     return redirect('/consultation/')  # Rediriger vers la page d'accueil après l'enregistrement
 
+# Fonction d'initialisation de la base de données
+def init_db():
+    connection = sqlite3.connect('clients.db')
+    cursor = connection.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS clients (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nom TEXT NOT NULL,
+            prenom TEXT NOT NULL,
+            adresse TEXT NOT NULL
+        )
+    ''')
+    # Insérer des données si elles n'existent pas
+    cursor.execute('SELECT COUNT(*) FROM clients')
+    if cursor.fetchone()[0] == 0:
+        cursor.executemany('''
+            INSERT INTO clients (nom, prenom, adresse)
+            VALUES (?, ?, ?)
+        ''', [
+            ('DUPONT', 'Emilie', '123, Rue des Lilas, 75001 Paris'),
+            ('LEROUX', 'Lucas', '456, Avenue du Soleil, 31000 Toulouse'),
+            ('MARTIN', 'Amandine', '789, Rue des Érables, 69002 Lyon'),
+            ('TREMBLAY', 'Antoine', '1010, Boulevard de la Mer, 13008 Marseille'),
+            ('LAMBERT', 'Sarah', '222, Avenue de la Liberté, 59000 Lille'),
+            ('GAGNON', 'Nicolas', '456, Boulevard des Cerisiers, 69003 Lyon'),
+            ('DUBOIS', 'Charlotte', '789, Rue des Roses, 13005 Marseille'),
+            ('LEFEVRE', 'Thomas', '333, Rue de la Paix, 75002 Paris')
+        ])
+    connection.commit()
+    connection.close()
+
+# Route principale avec la barre de recherche
+@app.route('/')
+def index():
+    return '''
+    <!DOCTYPE html>
+    <html lang="fr">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Recherche Client</title>
+    </head>
+    <body>
+        <h1>Rechercher un Client</h1>
+        <form action="/search" method="GET">
+            <input type="text" name="query" placeholder="Entrez un nom ou un prénom" required>
+            <button type="submit">Rechercher</button>
+        </form>
+    </body>
+    </html>
+    '''
+
+# Route pour effectuer la recherche
 @app.route('/fiche_nom/', methods=['GET'])
-def fiche_nom():
-    return render_template('fiche_nom')
+def search():
+    query = request.args.get('query', '').strip()  # Terme recherché
+    if not query:
+        return jsonify({"error": "Veuillez entrer un terme à rechercher"}), 400
+
+    connection = sqlite3.connect('clients.db')
+    cursor = connection.cursor()
+    
+    # Rechercher dans les colonnes 'nom' et 'prenom'
+    cursor.execute('''
+        SELECT * FROM clients
+        WHERE nom LIKE ? OR prenom LIKE ?
+    ''', (f'%{query}%', f'%{query}%'))
+    results = cursor.fetchall()
+    connection.close()
+
+    # Construire les résultats
+    if results:
+        return jsonify([{"id": row[0], "nom": row[1], "prenom": row[2], "adresse": row[3]} for row in results])
+    else:
+        return jsonify({"message": f"Aucun client trouvé pour le terme '{query}'"}), 404
+
 
 #test
                                                                                                                                        
