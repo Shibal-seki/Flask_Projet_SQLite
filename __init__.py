@@ -25,7 +25,7 @@ def index():
         return redirect(url_for('authentification'))
 
     if est_admin():
-        return redirect(url_for('admin_home'))
+        return redirect(url_for('admin.home'))
     else:
         return redirect(url_for('user_home'))
 
@@ -53,8 +53,8 @@ def logout():
     return redirect(url_for('authentification'))
 
 # Route pour la page Admin
-@app.route('/admin_home', methods=['GET', 'POST'])
-def admin_home():
+@app.route('/admin.home', methods=['GET', 'POST'])
+def admin.home():
     if not est_authentifie() or not est_admin():
         return "<h2>Accès refusé : Vous devez être administrateur pour accéder à cette page.</h2>", 403
 
@@ -86,7 +86,7 @@ def admin_home():
     livres = cursor.fetchall()
     conn.close()
 
-    return render_template('admin_home.html', livres=livres)
+    return render_template('admin.home.html', livres=livres)
 
 @app.route('/user_home', methods=['GET', 'POST'])
 def user_home():
