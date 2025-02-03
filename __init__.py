@@ -1,160 +1,136 @@
-from flask import Flask, render_template_string, render_template, jsonify, request, redirect, url_for, session
-from flask import render_template
-from flask import json
-from urllib.request import urlopen
-from werkzeug.utils import secure_filename
+from flask import Flask, render_template, request, redirect, url_for, session
 import sqlite3
 
-app = Flask(__name__)                                                                                                                  
+app = Flask(__name__)
 app.secret_key = b'_5#y2L"F4Q8z\n\xec]/'  # Clé secrète pour les sessions
 
-# Fonction pour créer une clé "authentifie" dans la session utilisateur
+# Dictionnaire des utilisateurs pour l'authentification
+utilisateurs = {
+    "admin": {"password": "admin123", "role": "Admin"},
+    "user": {"password": "12345", "role": "User"}
+}
+
+# Fonction pour vérifier si un utilisateur est authentifié
 def est_authentifie():
-    return session.get('authentifie')
+    return session.get('authentifie', False)
 
+# Fonction pour vérifier si l'utilisateur est admin
+def est_admin():
+    return session.get('role') == 'Admin'
+
+# Route principale redirigeant vers les pages spécifiques en fonction du rôle
 @app.route('/')
-def hello_world():
-    return render_template('hello.html')
-
-@app.route('/lecture')
-def lecture():
-    if not est_authentifie():
-        # Rediriger vers la page d'authentification si l'utilisateur n'est pas authentifié
+def index():
+    if not est_authentifie():  # Vérifier si l'utilisateur est authentifié
         return redirect(url_for('authentification'))
 
-  # Si l'utilisateur est authentifié
-    return "<h2>Bravo, vous êtes authentifié</h2>"
+    if est_admin():
+        return redirect(url_for('admin_home'))
+    else:
+        return redirect(url_for('user_home'))
 
+# Route pour l'authentification
 @app.route('/authentification', methods=['GET', 'POST'])
 def authentification():
     if request.method == 'POST':
-        # Vérifier les identifiants
-        if request.form['username'] == 'admin' and request.form['password'] == 'password': # password à cacher par la suite
+        username = request.form['username']
+        password = request.form['password']
+        
+        if username in utilisateurs and utilisateurs[username]["password"] == password:
             session['authentifie'] = True
-            # Rediriger vers la route lecture après une authentification réussie
-            return redirect(url_for('lecture'))
-        else:
-            # Afficher un message d'erreur si les identifiants sont incorrects
-            return render_template('formulaire_authentification.html', error=True)
+            session['role'] = utilisateurs[username]["role"]
+            session['utilisateur_id'] = username
+            return redirect(url_for('index'))
+
+        return render_template('formulaire_authentification.html', error=True)
 
     return render_template('formulaire_authentification.html', error=False)
 
-@app.route('/fiche_client/<int:post_id>')
-def Readfiche(post_id):
-    conn = sqlite3.connect('database.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM clients WHERE id = ?', (post_id,))
-    data = cursor.fetchall()
-    conn.close()
-    # Rendre le template HTML et transmettre les données
-    return render_template('read_data.html', data=data)
+# Route pour se déconnecter
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('authentification'))
 
-@app.route('/consultation/')
-def ReadBDD():
-    conn = sqlite3.connect('database.db')
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM clients;')
-    data = cursor.fetchall()
-    conn.close()
-    return render_template('read_data.html', data=data)
+# Route pour la page Admin
+@app.route('/admin_home', methods=['GET', 'POST'])
+def admin_home():
+    if not est_authentifie() or not est_admin():
+        return "<h2>Accès refusé : Vous devez être administrateur pour accéder à cette page.</h2>", 403
 
-@app.route('/enregistrer_client', methods=['GET'])
-def formulaire_client():
-    return render_template('formulaire.html')  # afficher le formulaire
-
-@app.route('/enregistrer_client', methods=['POST'])
-def enregistrer_client():
-    nom = request.form['nom']
-    prenom = request.form['prenom']
-
-    # Connexion à la base de données
     conn = sqlite3.connect('database.db')
     cursor = conn.cursor()
 
-    # Exécution de la requête SQL pour insérer un nouveau client
-    cursor.execute('INSERT INTO clients (created, nom, prenom, adresse) VALUES (?, ?, ?, ?)', (1002938, nom, prenom, "ICI"))
-    conn.commit()
-    conn.close()
-    return redirect('/consultation/')  # Rediriger vers la page d'accueil après l'enregistrement
+    if request.method == 'POST':
+        if 'ajouter_livre' in request.form:
+            titre = request.form['titre']
+            auteur = request.form['auteur']
+            annee = request.form['annee']
+            quantite = request.form['quantite']
+            cursor.execute('INSERT INTO Livres (Titre, Auteur, Annee_publication, Quantite) VALUES (?, ?, ?, ?)', 
+                           (titre, auteur, annee, quantite))
+            conn.commit()
 
-# Fonction d'initialisation de la base de données
-def init_db():
-    connection = sqlite3.connect('clients.db')
-    cursor = connection.cursor()
+        if 'supprimer_livre' in request.form:
+            livre_id = request.form['livre_id']
+            cursor.execute('DELETE FROM Livres WHERE ID_livre = ?', (livre_id,))
+            conn.commit()
+
+        if 'ajouter_stock' in request.form:
+            livre_id = request.form['livre_id']
+            quantite_ajoutee = request.form['quantite']
+            cursor.execute('UPDATE Livres SET Quantite = Quantite + ? WHERE ID_livre = ?', (quantite_ajoutee, livre_id))
+            conn.commit()
+
+    cursor.execute('SELECT * FROM Livres')
+    livres = cursor.fetchall()
+    conn.close()
+
+    return render_template('admin_home.html', livres=livres)
+
+@app.route('/user_home', methods=['GET', 'POST'])
+def user_home():
+    if not est_authentifie() or est_admin():
+        return "<h2>Accès refusé : Vous devez être utilisateur pour accéder à cette page.</h2>", 403
+
+    conn = sqlite3.connect('database.db')
+    cursor = conn.cursor()
+
+    if request.method == 'POST':
+        if 'emprunter' in request.form:
+            livre_id = request.form['livre_id']
+            cursor.execute('SELECT Quantite FROM Livres WHERE ID_livre = ?', (livre_id,))
+            livre = cursor.fetchone()
+            if livre and livre[0] > 0:
+                cursor.execute('UPDATE Livres SET Quantite = Quantite - 1 WHERE ID_livre = ?', (livre_id,))
+                cursor.execute('INSERT INTO Emprunts (ID_utilisateur, ID_livre) VALUES (?, ?)', 
+                               (session['utilisateur_id'], livre_id))
+                conn.commit()
+
+        if 'retourner' in request.form:
+            emprunt_id = request.form['emprunt_id']
+            cursor.execute('SELECT ID_livre FROM Emprunts WHERE ID_emprunt = ?', (emprunt_id,))
+            emprunt = cursor.fetchone()
+            if emprunt:
+                cursor.execute('UPDATE Livres SET Quantite = Quantite + 1 WHERE ID_livre = ?', (emprunt[0],))
+                cursor.execute('UPDATE Emprunts SET Statut = "Terminé", Date_retour = DATE("now") WHERE ID_emprunt = ?', 
+                               (emprunt_id,))
+                conn.commit()
+
+    cursor.execute('SELECT * FROM Livres')
+    livres = cursor.fetchall()
+
     cursor.execute('''
-        CREATE TABLE IF NOT EXISTS clients (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nom TEXT NOT NULL,
-            prenom TEXT NOT NULL,
-            adresse TEXT NOT NULL
-        )
-    ''')
-    # Insérer des données si elles n'existent pas
-    cursor.execute('SELECT COUNT(*) FROM clients')
-    if cursor.fetchone()[0] == 0:
-        cursor.executemany('''
-            INSERT INTO clients (nom, prenom, adresse)
-            VALUES (?, ?, ?)
-        ''', [
-            ('DUPONT', 'Emilie', '123, Rue des Lilas, 75001 Paris'),
-            ('LEROUX', 'Lucas', '456, Avenue du Soleil, 31000 Toulouse'),
-            ('MARTIN', 'Amandine', '789, Rue des Érables, 69002 Lyon'),
-            ('TREMBLAY', 'Antoine', '1010, Boulevard de la Mer, 13008 Marseille'),
-            ('LAMBERT', 'Sarah', '222, Avenue de la Liberté, 59000 Lille'),
-            ('GAGNON', 'Nicolas', '456, Boulevard des Cerisiers, 69003 Lyon'),
-            ('DUBOIS', 'Charlotte', '789, Rue des Roses, 13005 Marseille'),
-            ('LEFEVRE', 'Thomas', '333, Rue de la Paix, 75002 Paris')
-        ])
-    connection.commit()
-    connection.close()
+        SELECT E.ID_emprunt, L.Titre, L.Auteur, E.Date_emprunt, E.Statut
+        FROM Emprunts E
+        JOIN Livres L ON E.ID_livre = L.ID_livre
+        WHERE E.ID_utilisateur = ? AND E.Statut = "Actif"
+    ''', (session['utilisateur_id'],))
+    emprunts = cursor.fetchall()
 
-# Route principale avec la barre de recherche
-@app.route('/')
-def index():
-    return '''
-    <!DOCTYPE html>
-    <html lang="fr">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Recherche Client</title>
-    </head>
-    <body>
-        <h1>Rechercher un Client</h1>
-        <form action="/search" method="GET">
-            <input type="text" name="query" placeholder="Entrez un nom ou un prénom" required>
-            <button type="submit">Rechercher</button>
-        </form>
-    </body>
-    </html>
-    '''
+    conn.close()
 
-# Route pour effectuer la recherche
-@app.route('/fiche_nom/', methods=['GET'])
-def search():
-    query = request.args.get('query', '').strip()  # Terme recherché
-    if not query:
-        return jsonify({"error": "Veuillez entrer un terme à rechercher"}), 400
+    return render_template('user_home.html', livres=livres, emprunts=emprunts)
 
-    connection = sqlite3.connect('clients.db')
-    cursor = connection.cursor()
-    
-    # Rechercher dans les colonnes 'nom' et 'prenom'
-    cursor.execute('''
-        SELECT * FROM clients
-        WHERE nom LIKE ? OR prenom LIKE ?
-    ''', (f'%{query}%', f'%{query}%'))
-    results = cursor.fetchall()
-    connection.close()
-
-    # Construire les résultats
-    if results:
-        return jsonify([{"id": row[0], "nom": row[1], "prenom": row[2], "adresse": row[3]} for row in results])
-    else:
-        return jsonify({"message": f"Aucun client trouvé pour le terme '{query}'"}), 404
-
-
-#test
-                                                                                                                                       
 if __name__ == "__main__":
-  app.run(debug=True)
+    app.run(debug=True)
